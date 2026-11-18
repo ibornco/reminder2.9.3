@@ -24,7 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Storefront
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,11 +82,11 @@ private fun persistStoreProfile(context: Context, profile: StoreProfile?) {
         .apply()
 }
 
-private val StoreMint = Color(0xFFC2FAB3)
-private val StoreInk = Color(0xFFE2E4E9)
-private val StoreMuted = Color(0xFF8B929E)
-private val StoreBlack = Color(0xFF0F1115)
-private val StoreCard = Color(0xFF16191F)
+private val StoreMint = Color(0xFFC5F4A9)
+private val StoreInk = Color(0xFFEDF3ED)
+private val StoreMuted = Color(0xFF8C9B91)
+private val StoreBlack = Color(0xFF080D0C)
+private val StoreCard = Color(0xFF19231F)
 
 private val LocalStoreEnglish = staticCompositionLocalOf { true }
 
@@ -465,7 +466,7 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
     var staff by remember { mutableStateOf<List<StoreStaff>>(emptyList()) }
     var shifts by remember { mutableStateOf<List<StoreShift>>(emptyList()) }
     var products by remember { mutableStateOf<List<StoreProduct>>(emptyList()) }
-    var page by remember { mutableStateOf("Tasks") }
+    var page by remember { mutableStateOf(if (profile?.role == "manager") "Tasks" else "My tasks") }
     var error by remember { mutableStateOf("") }; var loading by remember { mutableStateOf(false) }
     var introVisible by remember { mutableStateOf(false) }; var dataReady by remember { mutableStateOf(false) }
     var connectionState by remember { mutableStateOf(StoreConnectionState.CHECKING) }
@@ -530,22 +531,41 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
         }
     }
 
+    DisposableEffect(profile?.id, visible) {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                if (profile != null && visible) {
+                    scope.launch {
+                        connectionState = api.probeConnection()
+                        if (connectionState == StoreConnectionState.ONLINE) {
+                            if (api.pendingCount() > 0) api.flushPending()
+                            pendingChanges = api.pendingCount()
+                            refresh(showLoading = false)
+                        }
+                    }
+                }
+            }
+        }
+        if (profile != null && visible) runCatching { connectivity.registerDefaultNetworkCallback(callback) }
+        onDispose { runCatching { connectivity.unregisterNetworkCallback(callback) } }
+    }
+
     LaunchedEffect(profile?.id, visible) {
         if (profile != null && visible) {
-            var pollCount = 0
             while (true) {
+                // Background polling is deliberately gentle: the app is used a few times a day,
+                // while explicit screen entry and user writes still sync immediately.
                 connectionState = api.probeConnection()
                 if (connectionState == StoreConnectionState.ONLINE && api.pendingCount() > 0) {
                     api.flushPending()
                     pendingChanges = api.pendingCount()
-                    if (pendingChanges == 0) refresh()
-                } else if (connectionState == StoreConnectionState.ONLINE && pendingChanges == 0 && pollCount % 4 == 0 && !loading) {
-                    // Keep shared stock counts and task state fresh while the store workspace is open.
+                }
+                if (connectionState == StoreConnectionState.ONLINE && !loading) {
                     refresh(showLoading = false)
                 }
                 pendingChanges = api.pendingCount()
-                pollCount++
-                delay(15000)
+                delay(15 * 60 * 1000L)
             }
         }
     }
@@ -590,13 +610,16 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
     if (introVisible) { StoreLoadingVideo(context); return }
 
     CompositionLocalProvider(LocalStoreEnglish provides english) {
-    Column(Modifier.fillMaxSize().background(StoreBlack).nestedScroll(pullRefreshConnection).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column {
-                Text(storeText("STORE WORKSPACE"), color = StoreMint, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
-                Text(if (profile == null) storeText("Shared workspace") else profile!!.displayName, color = StoreInk, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF111B18), Color(0xFF0A1110), Color(0xFF101917)))).nestedScroll(pullRefreshConnection).padding(horizontal=16.dp, vertical=14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(colors=CardDefaults.cardColors(containerColor=Color.Transparent), shape=RoundedCornerShape(24.dp), border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF607D5E)), modifier=Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF3B5940),Color(0xFF1E3426),Color(0xFF132219)))).padding(19.dp), horizontalArrangement=Arrangement.SpaceBetween, verticalAlignment=Alignment.CenterVertically) {
+                Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text(storeText("STORE CENTER"), color=Color(0xFFD6F6C4), fontSize=18.sp, fontWeight=FontWeight.ExtraBold)
+                    Text(if (profile == null) storeText("Your integrated store workspace") else profile!!.displayName, color=Color(0xFFB3C4B2), fontSize=10.sp)
+                    Text(storeText("Products · tasks · shifts · expiry"), color=Color(0xFFB3C4B2), fontSize=9.sp)
+                }
+                Icon(Icons.Rounded.Storefront,null,tint=StoreMint,modifier=Modifier.size(30.dp))
             }
-            Icon(Icons.Rounded.Storefront, null, tint = StoreMint, modifier = Modifier.size(30.dp))
         }
         if (profile != null) {
             val indicatorColor = when {
@@ -639,7 +662,7 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
                     Text(storeText("Your shared team workspace"), color = StoreMuted, fontSize = 12.sp)
                     StoreField(username, { username = it }, "Username")
                     StoreField(password, { password = it }, "Password", true)
-                    Button(onClick = { scope.launch { loading = true; error = ""; try { dataReady = false; profile = api.login(username.trim(), password); persistStoreProfile(context, profile); scheduleManagerNightly(context, profile?.role == "manager"); scheduleStoreNotifications(context); context.getSharedPreferences("reminder_store_auth", Context.MODE_PRIVATE).edit().putBoolean("intro_seen", false).apply(); introVisible = true; password = "" } catch (e: Exception) { introVisible = false; dataReady = true; error = if (e is IOException) "Vpn khod ra roshn konid" else (e.message ?: "Login failed") }; loading = false } }, enabled = !loading && username.isNotBlank() && password.isNotBlank(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = StoreMint, contentColor = StoreBlack)) { Text(storeText(if (loading) "Connecting…" else "Sign in"), fontWeight = FontWeight.Bold) }
+                    Button(onClick = { scope.launch { loading = true; error = ""; try { dataReady = false; profile = api.login(username.trim(), password); page = if (profile?.role == "manager") "Tasks" else "My tasks"; persistStoreProfile(context, profile); scheduleManagerNightly(context, profile?.role == "manager"); scheduleStoreNotifications(context); context.getSharedPreferences("reminder_store_auth", Context.MODE_PRIVATE).edit().putBoolean("intro_seen", false).apply(); introVisible = true; password = "" } catch (e: Exception) { introVisible = false; dataReady = true; error = if (e is IOException) "Vpn khod ra roshn konid" else (e.message ?: "Login failed") }; loading = false } }, enabled = !loading && username.isNotBlank() && password.isNotBlank(), modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = StoreMint, contentColor = StoreBlack)) { Text(storeText(if (loading) "Connecting…" else "Sign in"), fontWeight = FontWeight.Bold) }
                     if (error.isNotBlank()) Text(storeText(error), color = Color(0xFFFF8A80), fontSize = 12.sp)
                     Text(storeText("Sign in once. This device keeps your session until you log out or access is revoked."), color = StoreMuted, fontSize = 12.sp)
                 }
@@ -647,8 +670,23 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
         } else {
             val manager = profile!!.role == "manager"
             val tabs = if (manager) listOf("Tasks", "Staff", "Shifts", "Products") else listOf("My tasks", "Schedule", "Products")
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                tabs.forEach { tab -> FilterChip(selected = page == tab, onClick = { page = tab }, label = { Text(storeText(tab), fontSize = 11.sp) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = StoreMint, selectedLabelColor = StoreBlack)) }
+            Column(verticalArrangement=Arrangement.spacedBy(9.dp)) {
+                tabs.chunked(2).forEach { rowTabs ->
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(9.dp)) {
+                        rowTabs.forEach { tab ->
+                            val icon = when(tab) { "Tasks", "My tasks" -> Icons.Rounded.Assignment; "Staff" -> Icons.Rounded.PeopleAlt; "Shifts", "Schedule" -> Icons.Rounded.CalendarMonth; else -> Icons.Rounded.Inventory2 }
+                            val subtitle = when(tab) { "Tasks", "My tasks" -> storeText("Assigned work and completion"); "Staff" -> storeText("Team members and access"); "Shifts", "Schedule" -> storeText("Dated team schedule"); else -> storeText("Products and expiry batches") }
+                            Card(onClick={page=tab},modifier=Modifier.weight(1f),shape=RoundedCornerShape(20.dp),colors=CardDefaults.cardColors(containerColor=if(page==tab) Color(0xFF2C4434) else Color(0xFF19231F)),border=androidx.compose.foundation.BorderStroke(1.dp,if(page==tab) Color(0xFF668466) else Color(0xFF405747))) {
+                                Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                                    Box(Modifier.size(40.dp).background(Brush.linearGradient(listOf(Color(0xFF506D50),Color(0xFF243C29))),RoundedCornerShape(13.dp)),contentAlignment=Alignment.Center) { Icon(icon,null,tint=StoreMint,modifier=Modifier.size(21.dp)) }
+                                    Text(storeText(tab),color=StoreInk,fontSize=12.sp,fontWeight=FontWeight.Bold)
+                                    Text(subtitle,color=StoreMuted,fontSize=9.sp)
+                                }
+                            }
+                        }
+                        if(rowTabs.size==1) Spacer(Modifier.weight(1f))
+                    }
+                }
             }
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = StoreMint)
             AnimatedContent(
@@ -773,7 +811,7 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
             Button(onClick={ onCreate(username.trim(),name.trim(),password); username="";name="";password="" }, enabled=username.isNotBlank()&&name.isNotBlank()&&password.length>=6, colors=ButtonDefaults.buttonColors(containerColor=StoreMint,contentColor=StoreBlack)) { Text(storeText("Create staff account")) }
         } }
         item { Text(storeText("Staff members"), color=StoreInk, fontWeight=FontWeight.Bold) }
-        items(staff) { s -> PanelCard { Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween, verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(s.name,color=StoreInk,fontWeight=FontWeight.Medium); Text(storeText("@${s.username}"),color=StoreMuted,fontSize=11.sp) }; TextButton(onClick={onToggle(s.id,!s.active)}) { Text(storeText(if(s.active) "Disable" else "Enable"),color=if(s.active) Color(0xFFFF8A80) else StoreMint,fontSize=11.sp) } } } }
+        items(staff, key = { it.id }) { s -> PanelCard { Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.SpaceBetween, verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(s.name,color=StoreInk,fontWeight=FontWeight.Medium); Text(storeText("@${s.username}"),color=StoreMuted,fontSize=11.sp) }; TextButton(onClick={onToggle(s.id,!s.active)}) { Text(storeText(if(s.active) "Disable" else "Enable"),color=if(s.active) Color(0xFFFF8A80) else StoreMint,fontSize=11.sp) } } } }
     }
 }
 
@@ -786,7 +824,10 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
     val first = month.withDayOfMonth(1)
     val weekOffset = if (LocalStoreEnglish.current) first.dayOfWeek.value - 1 else (first.dayOfWeek.value + 1) % 7
     val calendarStart = first.minusDays(weekOffset.toLong())
-    val calendarDays = (0 until 42).map { calendarStart.plusDays(it.toLong()) }
+    val calendarDays = remember(calendarStart) { (0 until 42).map { calendarStart.plusDays(it.toLong()) } }
+    val shiftsByDate = remember(shifts) { shifts.groupBy { it.date } }
+    val selectedDateShifts = remember(shiftsByDate, date) { shiftsByDate[date].orEmpty().ifEmpty { shifts } }
+    val activeStaff = remember(staff) { staff.filter { it.active } }
     LazyColumn(modifier = modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item { PanelCard {
             Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.SpaceBetween, modifier=Modifier.fillMaxWidth()) {
@@ -804,7 +845,7 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
                 Row(Modifier.fillMaxWidth()) {
                     week.forEach { day ->
                         val iso = day.toString()
-                        val dayShifts = shifts.filter { it.date == iso }
+                        val dayShifts = shiftsByDate[iso].orEmpty()
                         val selectedDay = date == iso
                         Box(Modifier.weight(1f).height(43.dp).padding(2.dp).background(if(selectedDay) StoreMint.copy(alpha=.22f) else Color.Transparent,RoundedCornerShape(11.dp)).clickable { date=iso; if(day.month!=month.month) month=day.withDayOfMonth(1) },contentAlignment=Alignment.Center) {
                             Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(0.dp)) {
@@ -823,11 +864,11 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
                 listOf("morning","evening","full_day").forEach { shiftType -> FilterChip(selected=type==shiftType,onClick={type=shiftType},label={Text(storeText(when(shiftType){"morning"->"Morning";"evening"->"Evening";else->"Full day"}),fontSize=11.sp)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=StoreMint,selectedLabelColor=StoreBlack)) }
             }
             Text(storeText("Select staff"),color=StoreMuted,fontSize=12.sp)
-            staff.filter { it.active }.forEach { s -> Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(checked=s.id in selected,onCheckedChange={selected=if(it) selected+s.id else selected-s.id},colors=CheckboxDefaults.colors(checkedColor=StoreMint)); Text(s.name,color=StoreInk) } }
+            activeStaff.forEach { s -> Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(checked=s.id in selected,onCheckedChange={selected=if(it) selected+s.id else selected-s.id},colors=CheckboxDefaults.colors(checkedColor=StoreMint)); Text(s.name,color=StoreInk) } }
             Button(onClick={onSave(date,type,selected);selected= emptySet()},enabled=runCatching{LocalDate.parse(date)}.isSuccess,colors=ButtonDefaults.buttonColors(containerColor=StoreMint,contentColor=StoreBlack)){Text(storeText("Save schedule"))}
         } }
         item { Text(storeText(if(manager) "Upcoming shifts" else "My schedule & colleagues"),color=StoreInk,fontWeight=FontWeight.Bold) }
-        items(shifts.filter { it.date == date }.ifEmpty { shifts }, key={it.id}) { shift -> PanelCard {
+        items(selectedDateShifts, key={it.id}) { shift -> PanelCard {
             Text("${displayStoreDate(shift.date, LocalStoreEnglish.current)} · ${storeText(when(shift.type){"morning"->"Morning";"evening"->"Evening";else->"Full day"})}",color=StoreMint,fontWeight=FontWeight.SemiBold)
             Text(if(shift.members.isEmpty()) storeText("No staff assigned") else shift.members.joinToString(" · "),color=StoreInk,fontSize=13.sp)
             if(manager) TextButton(onClick={onDelete(shift.id)},enabled=shift.id>0 || shift.id<0){Text(storeText("Delete"),color=Color(0xFFFF8A80),fontSize=11.sp)}
@@ -839,6 +880,7 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
     var title by remember { mutableStateOf("") }; var date by remember { mutableStateOf(LocalDate.now().toString()) }; var type by remember { mutableStateOf("morning") }; var assignee by remember { mutableStateOf("Shared shift task") }; var editingId by remember { mutableStateOf<Int?>(null) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val editScope = rememberCoroutineScope()
+    val activeStaff = remember(staff) { staff.filter { it.active } }
     LazyColumn(state = listState, modifier = modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(9.dp)) {
         if(manager) item { PanelCard {
             Text(storeText("Create task"),color=StoreInk,fontWeight=FontWeight.Bold)
@@ -847,14 +889,14 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
             var expanded by remember { mutableStateOf(false) }
             Box { OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()){Text(storeText(assignee),color=StoreInk)}; DropdownMenu(expanded,{expanded=false}) {
                 DropdownMenuItem(text={Text(storeText("Shared shift task"))},onClick={ assignee="Shared shift task"; expanded=false })
-                staff.filter{it.active}.forEach { s -> DropdownMenuItem(text={Text(s.name)},onClick={ assignee="${s.id}:${s.name}"; expanded=false }) }
+                activeStaff.forEach { s -> DropdownMenuItem(text={Text(s.name)},onClick={ assignee="${s.id}:${s.name}"; expanded=false }) }
             } }
             Button(onClick={val id=assignee.substringBefore(":").toIntOrNull(); if(editingId==null) onCreate(title.trim(),date,type,id) else onUpdate(editingId!!,title.trim(),date,type,id); title=""; editingId=null; assignee="Shared shift task"},enabled=title.isNotBlank()&&runCatching{LocalDate.parse(date)}.isSuccess,colors=ButtonDefaults.buttonColors(containerColor=StoreMint,contentColor=StoreBlack)){Text(storeText(if(editingId==null) "Create task" else "Save task changes"))}
             if (editingId != null) TextButton(onClick = { editingId=null; title=""; assignee="Shared shift task"; date=LocalDate.now().toString() }) { Text(storeText("Cancel"), color=StoreMuted) }
             Text(storeText("Assigned tasks are visible only to that employee and managers."),color=StoreMuted,fontSize=10.sp)
         } }
         item { Text(storeText(if(manager) "Store tasks" else "My tasks"),color=StoreInk,fontWeight=FontWeight.Bold) }
-        items(tasks) { task -> PanelCard {
+        items(tasks, key = { it.id }) { task -> PanelCard {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text(task.title,color=StoreInk,fontWeight=FontWeight.Medium); Text("${displayStoreDate(task.date, LocalStoreEnglish.current)} · ${storeText(if(task.shift=="morning") "Morning" else if(task.shift=="evening") "Evening" else task.shift)} · ${task.assignedName?.let { storeText(it) } ?: storeText("Shared")}",color=StoreMuted,fontSize=10.sp) }
                 Checkbox(checked=task.done,onCheckedChange={onComplete(task.id,it)},enabled=!manager || task.assignedName!=null,colors=CheckboxDefaults.colors(checkedColor=StoreMint))
@@ -886,12 +928,15 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
             matchesText && matchesStatus
         }.sortedBy { (_, batches) -> batches.minOfOrNull { it.expiry } ?: "9999-12-31" }
     }
-    val criticalBatches = products.filter { batch ->
-        val days = runCatching { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(batch.expiry)) }.getOrDefault(Long.MAX_VALUE)
-        days < 0L || days in 0L..3L
+    val today = LocalDate.now()
+    val criticalBatches = remember(products, today) {
+        products.filter { batch ->
+            val days = runCatching { java.time.temporal.ChronoUnit.DAYS.between(today, LocalDate.parse(batch.expiry)) }.getOrDefault(Long.MAX_VALUE)
+            days < 0L || days in 0L..3L
+        }
     }
     val criticalCount = criticalBatches.size
-    val needsPhysicalCount = criticalBatches.filter { it.checkedAt.take(10) != LocalDate.now().toString() }
+    val needsPhysicalCount = remember(criticalBatches, today) { criticalBatches.filter { it.checkedAt.take(10) != today.toString() } }
     LazyColumn(modifier = modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -956,7 +1001,8 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
         item { Text(if(LocalStoreEnglish.current) "EXPIRY INVENTORY · ${filteredProducts.size}" else "موجودی و انقضا · ${filteredProducts.size}",color=StoreInk,fontWeight=FontWeight.Bold) }
         if(filteredProducts.isEmpty()) item { PanelCard { Text(if(LocalStoreEnglish.current) "No matching products" else "محصولی با این مشخصات پیدا نشد",color=StoreMuted) } }
         items(filteredProducts, key = { it.first }) { (_, batches) ->
-            val first = batches.first()
+            val sortedBatches = remember(batches) { batches.sortedBy { it.expiry } }
+            val first = sortedBatches.first()
             PanelCard {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -966,7 +1012,7 @@ fun StorePortal(context: Context, english: Boolean = true, visible: Boolean = tr
                     Text("${batches.sumOf { it.quantity }} ${storeText("Qty")}",color=StoreMint,fontWeight=FontWeight.Bold)
                 }
                 if(first.barcode.isNotBlank()) Text("${storeText("Barcode:")} ${first.barcode}",color=StoreMuted,fontSize=10.sp)
-                batches.sortedBy { it.expiry }.forEach { batch ->
+                sortedBatches.forEach { batch ->
                     val days = runCatching { java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), LocalDate.parse(batch.expiry)) }.getOrDefault(Long.MAX_VALUE)
                     val statusColor = when { days < 0L -> Color(0xFFFF6B6B); days <= 3L -> Color(0xFFFFB454); days <= 14L -> Color(0xFFF6D365); else -> StoreMint }
                     Surface(color=statusColor.copy(alpha=.10f),shape=RoundedCornerShape(12.dp),modifier=Modifier.fillMaxWidth()) {
